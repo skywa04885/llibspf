@@ -1,7 +1,7 @@
 {
   "name": "llibspf",
   "version": "1.0.0",
-  "description": "",
+  "description": "Reference: [RFC 7208](https://datatracker.ietf.org/doc/html/rfc7208#section-7)",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
@@ -16,6 +16,16 @@
     "prettier": "^2.6.1"
   },
   "dependencies": {
-    "ipaddr.js": "^2.0.1"
-  }
+    "ipaddr.js": "^2.0.1",
+    "llibipaddress": "^1.0.5",
+    "llibmime": "^1.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/skywa04885/llibspf.git"
+  },
+  "bugs": {
+    "url": "https://github.com/skywa04885/llibspf/issues"
+  },
+  "homepage": "https://github.com/skywa04885/llibspf#readme"
 }
