@@ -1,6 +1,6 @@
 {
   "name": "llibspf",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Reference: [RFC 7208](https://datatracker.ietf.org/doc/html/rfc7208#section-7)",
   "types": "dist/index.d.ts",
   "main": "dist/index.js",
@@ -19,8 +19,12 @@
   "dependencies": {
     "ipaddr.js": "^2.0.1",
     "llibipaddress": "^1.0.5",
-    "llibmime": "^1.0.1"
+    "llibmime": "^1.0.1",
+    "winston": "^3.8.1"
   },
+  "files": [
+    "dist/*"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/skywa04885/llibspf.git"

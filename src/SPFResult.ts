@@ -1,6 +1,6 @@
 import { MimeMappedHeaderValue } from "llibmime";
 import { SPFCheckedIdentity } from "./SPFCheckedIdentity";
-import { SPFContext } from "./SPFContext";
+import { ISPFContext } from "./SPFContext";
 import { SPFMechanism } from "./SPFDirectives";
 
 export const RECEIVED_SPF_HEADER_KEY = 'Received-SPF';
@@ -16,15 +16,15 @@ export enum SPFResultType {
 }
 
 export class SPFResult {
-  public constructor(public readonly type: SPFResultType, public readonly context: SPFContext, public readonly mechanism: SPFMechanism | null = null, public readonly comment: string | null = null) {}
+  public constructor(public readonly type: SPFResultType, public readonly context: ISPFContext, public readonly mechanism: SPFMechanism | null = null, public readonly comment: string | null = null) {}
 
   public asHeader(): [string, string] {
     // Constructs the key/ value pairs.
     const pairs: {[key: string]: string} = {
-      "client-ip": this.context.clientIPAddress.encode(),
-      "envelope-from": `${this.context.sender}`,
-      "helo": this.context.clientGreetDomain,
-      "receiver": this.context.ourHostname,
+      "client-ip": this.context.client.ipAddress.encode(),
+      "envelope-from": `${this.context.message.emailUsername}@${this.context.message.emailDomain}`,
+      "helo": this.context.client.greetHostname,
+      "receiver": this.context.server.hostname,
       "mechanism": this.mechanism ? this.mechanism.toString() : 'default',
       "identity": SPFCheckedIdentity.MailFrom,
     };

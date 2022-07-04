@@ -1,12 +1,21 @@
 import { IPv4Address, IPv6Address } from "llibipaddress";
 
-export class SPFContext {
-  public constructor(
-    public readonly sender: string,
-    public readonly senderDomain: string,
-    public readonly clientDomain: string,
-    public readonly clientIPAddress: IPv4Address | IPv6Address,
-    public readonly clientGreetDomain: string,
-    public readonly ourHostname: string,
-  )  {}
+export interface ISPFContextServer {
+  hostname: string; // Our hostname.
+}
+
+export interface ISPFContextClient {
+  ipAddress: IPv4Address | IPv6Address; // The remote address of the client.
+  greetHostname: string; // The hostname received as argument in EHLO / HELO.
+}
+
+export interface ISPFContextMessage {
+  emailUsername: string;
+  emailDomain: string;
+}
+
+export interface ISPFContext {
+  server: ISPFContextServer;
+  client: ISPFContextClient;
+  message: ISPFContextMessage;
 }

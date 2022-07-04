@@ -1,28 +1,10 @@
 import { IPv4Address } from "llibipaddress";
 import * as net from "net";
-import { SPFContext } from "./SPFContext";
+import { ISPFContext } from "./SPFContext";
 import { SPFSyntacticalError } from "./SPFErrors";
 
 export class SPFMacroProcessor {
-  public constructor(public readonly context: SPFContext) {}
-
-  public get sender_domain(): string {
-    const index: number = this.context.sender.indexOf("@");
-    if (index === -1) {
-      throw new SPFSyntacticalError("Invalid sender.");
-    }
-
-    return this.context.sender.substring(index + 1);
-  }
-
-  public get sender_local_part(): string {
-    const index: number = this.context.sender.indexOf("@");
-    if (index === -1) {
-      throw new SPFSyntacticalError("Invalid sender.");
-    }
-
-    return this.context.sender.substring(0, index);
-  }
+  public constructor(public readonly context: ISPFContext) {}
 
   /**
    * Executes the given macro.
@@ -54,23 +36,23 @@ export class SPFMacroProcessor {
     switch (letter) {
       // Sender.
       case "s": {
-        base = this.context.sender;
+        base = `${this.context.message.emailUsername}@${this.context.message.emailDomain}`;
         break;
       }
       // Local part of sender.
       case "l": {
-        base = this.sender_local_part;
+        base = this.context.message.emailUsername;
         break;
       }
       // Domain of sender.
       case "o":
       case "d": {
-        base = this.sender_domain;
+        base = this.context.message.emailDomain;
         break;
       }
       // IP Address.
       case "i": {
-        base = this.context.clientIPAddress.encode();
+        base = this.context.client.ipAddress.encode();
         break;
       }
       // The validated domain (deprecated).
@@ -80,14 +62,14 @@ export class SPFMacroProcessor {
       // Address type.
       case "v": {
         base =
-          this.context.clientIPAddress instanceof IPv4Address
+          this.context.client.ipAddress instanceof IPv4Address
             ? "in-addr"
             : "ip6";
         break;
       }
       // 'HELO' / 'EHLO' domain.
       case "h": {
-        base = this.context.clientGreetDomain;
+        base = this.context.client.greetHostname;
         break;
       }
       // EXP Only commands.
@@ -103,9 +85,9 @@ export class SPFMacroProcessor {
 
         // Checks the letter (again, I know not efficient).
         if (letter === "c") {
-          base = this.context.clientIPAddress.encode();
+          base = this.context.client.ipAddress.encode();
         } else if (letter === "r") {
-          base = this.context.clientDomain;
+          base = this.context.server.hostname;
         } else {
           // 't'
           base = Math.floor(new Date().getTime() / 1000).toString();

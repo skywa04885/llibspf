@@ -1,9 +1,9 @@
 import dns from "dns";
 import util from "util";
 import { SPFMacroProcessor } from "./SPFMacroProcessor";
-import { SPFDirective, SPFMechanism } from "./SPFDirectives";
+import { SPFDirective, SPFMechanism, SPFMechanismResult } from "./SPFDirectives";
 import { SPFModifier } from "./SPFModifiers";
-import { SPFContext } from "./SPFContext";
+import { ISPFContext } from "./SPFContext";
 import { SPFNetworkingError } from "./SPFErrors";
 
 export enum SPFBasicMechanism {
@@ -42,10 +42,15 @@ export class SPFRecord {
     return this.modifiers.at(index) as Type;
   }
 
+  /**
+   * Resolves an SPF record for the given hostname.
+   * @param hostname the hostname to resolve the SPF record for.
+   * @param context the context.
+   * @returns the SPF record for the hostname.
+   */
   public static async resolve(
     hostname: string,
-    context: SPFContext,
-    explain: boolean = false
+    context: ISPFContext
   ): Promise<SPFRecord | null> {
     // Gets all the TXT records from the domain.
     let records: string[];
@@ -68,13 +73,18 @@ export class SPFRecord {
     const spf_record: string = spf_records[0].slice(6); // Ignore others.
 
     // Returns the decoded header.
-    return SPFRecord.decode(spf_record, context, explain);
+    return SPFRecord.decode(spf_record, context);
   }
 
+  /**
+   * Decodes the given raw header.
+   * @param raw the raw header.
+   * @param context the SPF context.
+   * @returns the decoded header.
+   */
   public static decode(
     raw: string,
-    context: SPFContext,
-    explain: boolean
+    context: ISPFContext,
   ): SPFRecord {
     /////////////////////////////////////////////////
     // Processes macro's in the header.
@@ -83,7 +93,7 @@ export class SPFRecord {
     // Processes the header.
     const processed: string = new SPFMacroProcessor(context).process(
       raw,
-      explain
+      false
     );
 
     /////////////////////////////////////////////////

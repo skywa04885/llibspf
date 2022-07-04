@@ -1,9 +1,9 @@
 import { IPv4Address, IPv6Address } from "llibipaddress";
-import { SPFContext } from "./SPFContext";
+import { ISPFContext } from "./SPFContext";
 import { SPFRecord } from "./SPFRecord";
 import dns from "dns";
 import util from "util";
-import { SPFSyntacticalError } from "./SPFErrors";
+import { SPFNetworkingError, SPFSyntacticalError } from "./SPFErrors";
 
 export enum SPFDirectiveMechanismKeywords {
   A = "a",
@@ -58,13 +58,17 @@ export class SPFMechanismResult {
   ) {}
 }
 
+/////////////////////////////////////////////////
+// Mechanism Extensible Class.
+/////////////////////////////////////////////////
+
 export class SPFMechanism {
   /**
    * Performs the validation of the current mechanism, using the supplied context.
    * @param context the context of the validation.
    * @returns the result of the validation.
    */
-  public async validate(context: SPFContext): Promise<SPFMechanismResult> {
+  public async match(context: ISPFContext): Promise<SPFMechanismResult> {
     return new SPFMechanismResult(
       false,
       "Mechanism has no validation implemented."
@@ -72,12 +76,17 @@ export class SPFMechanism {
   }
 
   /**
-   * Returns the string version of the message (used in the encoding of the header).
+   * Gets the string version of the mechanism.
+   * @returns the string version.
    */
   public toString(): string {
     throw new Error("Not implemented!");
   }
 }
+
+/////////////////////////////////////////////////
+// Mechanism All Class.
+/////////////////////////////////////////////////
 
 export class SPFAllMechanism extends SPFMechanism {
   /**
@@ -100,17 +109,22 @@ export class SPFAllMechanism extends SPFMechanism {
    * @param context the context of the validation.
    * @returns the result of the validation.
    */
-  public async validate(context: SPFContext): Promise<SPFMechanismResult> {
+  public async match(context: ISPFContext): Promise<SPFMechanismResult> {
     return new SPFMechanismResult(true, "everything matches");
   }
 
   /**
-   * Returns the string version of the message (used in the encoding of the header).
+   * Gets the string version of the mechanism.
+   * @returns the string version.
    */
   public toString(): string {
     return `${SPFDirectiveMechanismKeywords.All}`;
   }
 }
+
+/////////////////////////////////////////////////
+// Mechanism Include Class.
+/////////////////////////////////////////////////
 
 export class SPFIncludeMechanism extends SPFMechanism {
   public constructor(
@@ -140,17 +154,52 @@ export class SPFIncludeMechanism extends SPFMechanism {
    * @param context the context of the validation.
    * @returns the result of the validation.
    */
-  public async validate(context: SPFContext): Promise<SPFMechanismResult> {
+  public async match(context: ISPFContext): Promise<SPFMechanismResult> {
+    // Gets the SPF record of the given domain.
+    const spfRecord: SPFRecord | null = await SPFRecord.resolve(
+      this.domain,
+      context
+    );
+    if (spfRecord === null) {
+      throw new SPFNetworkingError(
+        `Could not include SPF record for: ${this.domain}`
+      );
+    }
+
+    // Matches the directives... We only will use PASS ones
+    //  the rest like fail, are ignored.
+    for (const directive of spfRecord.directives) {
+      // Gets the qualifier and the mechanism.
+      const qualifier: SPFDirectiveQualifier = directive.qualifier;
+      const mechanism: SPFMechanism = directive.mechanism;
+
+      // Matches the mechanism.
+      const mechanismResult: SPFMechanismResult = await mechanism.match(
+        context
+      );
+
+      // Checks if the mechanism result passed, if so return a true.
+      if (mechanismResult.match === true && qualifier === SPFDirectiveQualifier.Pass) {
+        return new SPFMechanismResult(true, `${mechanism.toString()} matched.`);
+      }
+    }
+
+    // Default returning, nothing matched.
     return new SPFMechanismResult(false);
   }
 
   /**
-   * Returns the string version of the message (used in the encoding of the header).
+   * Gets the string version of the mechanism.
+   * @returns the string version.
    */
   public toString(): string {
     return `${SPFDirectiveMechanismKeywords.Include}:${this.domain}`;
   }
 }
+
+/////////////////////////////////////////////////
+// Mechanism A Class.
+/////////////////////////////////////////////////
 
 export class SPFAMechanism extends SPFMechanism {
   public constructor(public readonly domain: string | null) {
@@ -171,11 +220,11 @@ export class SPFAMechanism extends SPFMechanism {
    * @param context the context of the validation.
    * @returns the result of the validation.
    */
-  public async validate(context: SPFContext): Promise<SPFMechanismResult> {
-    if (context.clientIPAddress instanceof IPv4Address) {
+  public async match(context: ISPFContext): Promise<SPFMechanismResult> {
+    if (context.client.ipAddress instanceof IPv4Address) {
       // Resolves the A records of the current domain, or of the domain in the context.
       const rawAddresses: string[] = await util.promisify(dns.resolve4)(
-        this.domain ?? context.senderDomain
+        this.domain ?? context.message.emailDomain
       );
 
       // Parses the raw addresses.
@@ -185,15 +234,15 @@ export class SPFAMechanism extends SPFMechanism {
 
       // Matches the client IP address against the addresses in the array.
       for (const address of addresses) {
-        if (address.cidr && context.clientIPAddress.cidr_match(address)) {
+        if (address.cidr && context.client.ipAddress.cidr_match(address)) {
           return new SPFMechanismResult(
             true,
-            `Clients IPv4 ${context.clientIPAddress.encode()} is in the CIDR range ${address.encode()}`
+            `Clients IPv4 ${context.client.ipAddress.encode()} is in the CIDR range ${address.encode()}`
           );
-        } else if (!address.cidr && context.clientIPAddress.equals(address)) {
+        } else if (!address.cidr && context.client.ipAddress.equals(address)) {
           return new SPFMechanismResult(
             true,
-            `Clients IPv4 ${context.clientIPAddress.encode()} is mentioned in A record.`
+            `Clients IPv4 ${context.client.ipAddress.encode()} is mentioned in A record.`
           );
         }
       }
@@ -201,12 +250,12 @@ export class SPFAMechanism extends SPFMechanism {
       // We didn't match, return false.
       return new SPFMechanismResult(
         false,
-        `Clients IPv4 ${context.clientIPAddress.encode()} is not mentioned, nor in any CIDR range.`
+        `Clients IPv4 ${context.client.ipAddress.encode()} is not mentioned, nor in any CIDR range.`
       );
-    } else if (context.clientIPAddress instanceof IPv6Address) {
+    } else if (context.client.ipAddress instanceof IPv6Address) {
       // Resolves the A records of the current domain, or of the domain in the context.
       const rawAddresses: string[] = await util.promisify(dns.resolve6)(
-        this.domain ?? context.senderDomain
+        this.domain ?? context.message.emailDomain
       );
 
       // Parses the raw addresses.
@@ -216,15 +265,15 @@ export class SPFAMechanism extends SPFMechanism {
 
       // Matches the client IP address against the addresses in the array.
       for (const address of addresses) {
-        if (address.cidr && context.clientIPAddress.cidr_match(address)) {
+        if (address.cidr && context.client.ipAddress.cidr_match(address)) {
           return new SPFMechanismResult(
             true,
-            `Clients IPv6 ${context.clientIPAddress.encode()} is in the CIDR range ${address.encode()}`
+            `Clients IPv6 ${context.client.ipAddress.encode()} is in the CIDR range ${address.encode()}`
           );
-        } else if (!address.cidr && context.clientIPAddress.equals(address)) {
+        } else if (!address.cidr && context.client.ipAddress.equals(address)) {
           return new SPFMechanismResult(
             true,
-            `Clients IPv6 ${context.clientIPAddress.encode()} is mentioned in A record.`
+            `Clients IPv6 ${context.client.ipAddress.encode()} is mentioned in A record.`
           );
         }
       }
@@ -232,7 +281,7 @@ export class SPFAMechanism extends SPFMechanism {
       // We didn't match, return false.
       return new SPFMechanismResult(
         false,
-        `Clients IPv6 ${context.clientIPAddress.encode()} is not mentioned, nor in any CIDR range.`
+        `Clients IPv6 ${context.client.ipAddress.encode()} is not mentioned, nor in any CIDR range.`
       );
     } else {
       throw new SPFSyntacticalError("Client IP address not IPv4 or IPv6!");
@@ -240,7 +289,8 @@ export class SPFAMechanism extends SPFMechanism {
   }
 
   /**
-   * Returns the string version of the message (used in the encoding of the header).
+   * Gets the string version of the mechanism.
+   * @returns the string version.
    */
   public toString(): string {
     if (this.domain !== null) {
@@ -250,6 +300,10 @@ export class SPFAMechanism extends SPFMechanism {
     return SPFDirectiveMechanismKeywords.A;
   }
 }
+
+/////////////////////////////////////////////////
+// Mechanism MX Class.
+/////////////////////////////////////////////////
 
 export class SPFMXMechanism extends SPFMechanism {
   public constructor(public readonly domain: string | null) {
@@ -270,14 +324,14 @@ export class SPFMXMechanism extends SPFMechanism {
    * @param context the context of the validation.
    * @returns the result of the validation.
    */
-  public async validate(context: SPFContext): Promise<SPFMechanismResult> {
+  public async match(context: ISPFContext): Promise<SPFMechanismResult> {
     // Gets all the mail exchanges.
     const mailExchanges: dns.MxRecord[] = await util.promisify(dns.resolveMx)(
-      this.domain ?? context.senderDomain
+      this.domain ?? context.message.emailDomain
     );
 
     // Validates depending on the IP address type.
-    if (context.clientIPAddress instanceof IPv4Address) {
+    if (context.client.ipAddress instanceof IPv4Address) {
       // Gets all the addresses to match against.
       const addresses: IPv4Address[] = (
         await Promise.all(
@@ -297,10 +351,10 @@ export class SPFMXMechanism extends SPFMechanism {
 
       // Matches against all the addresses.
       for (const address of addresses) {
-        if (address.equals(context.clientIPAddress)) {
+        if (address.equals(context.client.ipAddress)) {
           return new SPFMechanismResult(
             true,
-            `Client IPv4 ${context.clientIPAddress.encode()} is mentioned as mail exchange.`
+            `Client IPv4 ${context.client.ipAddress.encode()} is mentioned as mail exchange.`
           );
         }
       }
@@ -308,9 +362,9 @@ export class SPFMXMechanism extends SPFMechanism {
       // Returns false.
       return new SPFMechanismResult(
         false,
-        `Client IPv4 ${context.clientIPAddress.encode()} not mentioned as mail exchange.`
+        `Client IPv4 ${context.client.ipAddress.encode()} not mentioned as mail exchange.`
       );
-    } else if (context.clientIPAddress instanceof IPv6Address) {
+    } else if (context.client.ipAddress instanceof IPv6Address) {
       // Gets all the addresses to match against.
       const addresses: IPv6Address[] = (
         await Promise.all(
@@ -330,10 +384,10 @@ export class SPFMXMechanism extends SPFMechanism {
 
       // Matches against all the addresses.
       for (const address of addresses) {
-        if (address.equals(context.clientIPAddress)) {
+        if (address.equals(context.client.ipAddress)) {
           return new SPFMechanismResult(
             true,
-            `Client IPv6 ${context.clientIPAddress.encode()} is mentioned as mail exchange.`
+            `Client IPv6 ${context.client.ipAddress.encode()} is mentioned as mail exchange.`
           );
         }
       }
@@ -341,7 +395,7 @@ export class SPFMXMechanism extends SPFMechanism {
       // Returns false.
       return new SPFMechanismResult(
         false,
-        `Client IPv6 ${context.clientIPAddress.encode()} not mentioned as mail exchange.`
+        `Client IPv6 ${context.client.ipAddress.encode()} not mentioned as mail exchange.`
       );
     } else {
       throw new SPFSyntacticalError("Client IP address not IPv4 or IPv6!");
@@ -349,7 +403,8 @@ export class SPFMXMechanism extends SPFMechanism {
   }
 
   /**
-   * Returns the string version of the message (used in the encoding of the header).
+   * Gets the string version of the mechanism.
+   * @returns the string version.
    */
   public toString(): string {
     if (this.domain !== null) {
@@ -359,6 +414,10 @@ export class SPFMXMechanism extends SPFMechanism {
     return SPFDirectiveMechanismKeywords.MX;
   }
 }
+
+/////////////////////////////////////////////////
+// Mechanism PTR Class.
+/////////////////////////////////////////////////
 
 export class SPFPTRMechanism extends SPFMechanism {
   public constructor(public readonly domain: string) {
@@ -383,10 +442,10 @@ export class SPFPTRMechanism extends SPFMechanism {
    * @param context the context of the validation.
    * @returns the result of the validation.
    */
-  public async validate(context: SPFContext): Promise<SPFMechanismResult> {
+  public async match(context: ISPFContext): Promise<SPFMechanismResult> {
     // Performs the reverse lookup of all the hostnames.
     const hostnames: string[] = await util.promisify(dns.reverse)(
-      context.clientIPAddress.encode()
+      context.client.ipAddress.encode()
     );
 
     // Checks if any of them matches.
@@ -394,7 +453,7 @@ export class SPFPTRMechanism extends SPFMechanism {
       if (hostname.endsWith(this.domain)) {
         return new SPFMechanismResult(
           true,
-          `Reverse lookup of ${context.clientIPAddress.encode()} resulted in matching hostname: ${hostname}`
+          `Reverse lookup of ${context.client.ipAddress.encode()} resulted in matching hostname: ${hostname}`
         );
       }
     }
@@ -404,7 +463,8 @@ export class SPFPTRMechanism extends SPFMechanism {
   }
 
   /**
-   * Returns the string version of the message (used in the encoding of the header).
+   * Gets the string version of the mechanism.
+   * @returns the string version.
    */
   public toString(): string {
     if (this.domain !== null) {
@@ -414,6 +474,10 @@ export class SPFPTRMechanism extends SPFMechanism {
     return SPFDirectiveMechanismKeywords.PTR;
   }
 }
+
+/////////////////////////////////////////////////
+// Mechanism IPv4 Class.
+/////////////////////////////////////////////////
 
 export class SPFIPv4Mechanism extends SPFMechanism {
   public constructor(public readonly address: IPv4Address) {
@@ -449,23 +513,23 @@ export class SPFIPv4Mechanism extends SPFMechanism {
    * @param context the context of the validation.
    * @returns the result of the validation.
    */
-  public async validate(context: SPFContext): Promise<SPFMechanismResult> {
-    if (context.clientIPAddress instanceof IPv6Address) {
+  public async match(context: ISPFContext): Promise<SPFMechanismResult> {
+    if (context.client.ipAddress instanceof IPv6Address) {
       return new SPFMechanismResult(false);
     }
 
-    if (this.address.cidr && context.clientIPAddress.cidr_match(this.address)) {
+    if (this.address.cidr && context.client.ipAddress.cidr_match(this.address)) {
       return new SPFMechanismResult(
         true,
-        `${context.clientIPAddress.encode()} is in CIDR range of ${this.address.encode()}`
+        `${context.client.ipAddress.encode()} is in CIDR range of ${this.address.encode()}`
       );
     } else if (
       !this.address.cidr &&
-      context.clientIPAddress.equals(this.address)
+      context.client.ipAddress.equals(this.address)
     ) {
       return new SPFMechanismResult(
         true,
-        `${context.clientIPAddress.encode()} is listed as IPv4 address`
+        `${context.client.ipAddress.encode()} is listed as IPv4 address`
       );
     }
 
@@ -473,12 +537,17 @@ export class SPFIPv4Mechanism extends SPFMechanism {
   }
 
   /**
-   * Returns the string version of the message (used in the encoding of the header).
+   * Gets the string version of the mechanism.
+   * @returns the string version.
    */
   public toString(): string {
     return `${SPFDirectiveMechanismKeywords.IPv4}:${this.address.encode()}`;
   }
 }
+
+/////////////////////////////////////////////////
+// Mechanism IPv6 Class.
+/////////////////////////////////////////////////
 
 export class SPFIPv6Mechanism extends SPFMechanism {
   public constructor(public readonly address: IPv6Address) {
@@ -514,23 +583,23 @@ export class SPFIPv6Mechanism extends SPFMechanism {
    * @param context the context of the validation.
    * @returns the result of the validation.
    */
-  public async validate(context: SPFContext): Promise<SPFMechanismResult> {
-    if (context.clientIPAddress instanceof IPv4Address) {
+  public async match(context: ISPFContext): Promise<SPFMechanismResult> {
+    if (context.client.ipAddress instanceof IPv4Address) {
       return new SPFMechanismResult(false);
     }
 
-    if (this.address.cidr && context.clientIPAddress.cidr_match(this.address)) {
+    if (this.address.cidr && context.client.ipAddress.cidr_match(this.address)) {
       return new SPFMechanismResult(
         true,
-        `${context.clientIPAddress.encode()} is in CIDR range of ${this.address.encode()}`
+        `${context.client.ipAddress.encode()} is in CIDR range of ${this.address.encode()}`
       );
     } else if (
       !this.address.cidr &&
-      context.clientIPAddress.equals(this.address)
+      context.client.ipAddress.equals(this.address)
     ) {
       return new SPFMechanismResult(
         true,
-        `${context.clientIPAddress.encode()} is listed as IPv6 address`
+        `${context.client.ipAddress.encode()} is listed as IPv6 address`
       );
     }
 
@@ -538,15 +607,24 @@ export class SPFIPv6Mechanism extends SPFMechanism {
   }
 
   /**
-   * Returns the string version of the message (used in the encoding of the header).
+   * Gets the string version of the mechanism.
+   * @returns the string version.
    */
   public toString(): string {
     return `${SPFDirectiveMechanismKeywords.IPv6}:${this.address.encode()}`;
   }
 }
 
+/////////////////////////////////////////////////
+// Mechanism Exists Class.
+/////////////////////////////////////////////////
+
 export class SPFExistsMechanism extends SPFMechanism {
-  public constructor(public readonly domain: string) {
+  /**
+   * Constructs a new SPF exists mechanism.
+   * @param hostname the hostname.
+   */
+  public constructor(public readonly hostname: string) {
     super();
   }
 
@@ -566,13 +644,68 @@ export class SPFExistsMechanism extends SPFMechanism {
   }
 
   /**
-   * Returns the string version of the message (used in the encoding of the header).
+   * Performs the validation of the current mechanism, using the supplied context.
+   * @param context the context of the validation.
+   * @returns the result of the validation.
+   */
+  public async match(context: ISPFContext): Promise<SPFMechanismResult> {
+    // Creates the promises for both types of RR's.
+    const iPv4Promise: Promise<string[]> = util.promisify(dns.resolve4)(
+      this.hostname
+    );
+    const iPv6Promise: Promise<string[]> = util.promisify(dns.resolve6)(
+      this.hostname
+    );
+
+    // Awaits both of the promises.
+    const [iPv4Addresses, iPv6Addresses] = await Promise.all([
+      iPv4Promise,
+      iPv6Promise,
+    ]);
+
+    // Checks if any of the two have records.
+    if (iPv4Addresses.length > 0 && iPv6Addresses.length > 0) {
+      return new SPFMechanismResult(
+        true,
+        `IPv4 and IPv6 RR's found for hostname: ${this.hostname}`
+      );
+    } else if (iPv4Addresses.length > 0) {
+      return new SPFMechanismResult(
+        true,
+        `IPv4 RR's found for hostname: ${this.hostname}`
+      );
+    } else if (iPv6Addresses.length > 0) {
+      return new SPFMechanismResult(
+        true,
+        `IPv6 RR's found for hostname: ${this.hostname}`
+      );
+    } else {
+      return new SPFMechanismResult(
+        false,
+        `No RR's found for hostname: ${this.hostname}`
+      );
+    }
+  }
+
+  /**
+   * Gets the string version of the mechanism.
+   * @returns the string version.
    */
   public toString(): string {
-    return `${SPFDirectiveMechanismKeywords.Exists}:${this.domain}`;
+    return `${SPFDirectiveMechanismKeywords.Exists}:${this.hostname}`;
   }
 }
 
+/////////////////////////////////////////////////
+// SPF Mechanism Parsing.
+/////////////////////////////////////////////////
+
+/**
+ * Parses an SPF mechanism.
+ * @param key the key.
+ * @param value the value.
+ * @returns The parsed mechanism.
+ */
 export const spf_parse_mechanism = (
   key: string,
   value: string | null
@@ -601,12 +734,27 @@ export const spf_parse_mechanism = (
   throw new SPFSyntacticalError(`Invalid SPF Mechanism: ${key}`);
 };
 
+/////////////////////////////////////////////////
+// Directive Class.
+/////////////////////////////////////////////////
+
 export class SPFDirective {
+  /**
+   * Constructs a new SPF directive.
+   * @param qualifier the qualifier for the directive.
+   * @param mechanism the mechanism for the directive.
+   */
   public constructor(
     public readonly qualifier: SPFDirectiveQualifier,
     public readonly mechanism: SPFMechanism
   ) {}
 
+  /**
+   * Parses an directive from the given key/ value pair.
+   * @param key the key of the directive.
+   * @param value the value of the directive.
+   * @returns The parsed directive.
+   */
   public static parse(key: string, value: string | null): SPFDirective {
     // Gets the mechanism and the qualifier (Defaults to Pass).
     let qualifier: SPFDirectiveQualifier = SPFDirectiveQualifier.Pass;

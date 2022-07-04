@@ -1,4 +1,5 @@
-import { SPFContext } from "./SPFContext";
+import winston from "winston";
+import { ISPFContext } from "./SPFContext";
 import {
   SPFDirectiveQualifier,
   SPFMechanism,
@@ -15,25 +16,40 @@ import { SPFResult, SPFResultType } from "./SPFResult";
 
 export class SPFValidator {
   public constructor(
-    public readonly context: SPFContext,
-    public readonly verbose: boolean = true
+    public readonly context: ISPFContext,
+    public readonly logger: winston.Logger | undefined = undefined
   ) {}
 
   /**
    * Validates the SPF Record.
    * @param hostname the domain to check the SPF for.
    */
-  public async validate(hostname: string): Promise<SPFResult> {
+  public async validate(
+    hostname: string = this.context.message.emailDomain
+  ): Promise<SPFResult> {
     try {
+      this.logger?.debug(`Resolving record for: ${hostname}`);
+
       // Gets the SPF Record.
       const record: SPFRecord | null = await SPFRecord.resolve(
         hostname,
         this.context
       );
 
+      // Makes sure that the record is found.
       if (record === null) {
-        return new SPFResult(SPFResultType.None, this.context, null, `could not resolve ${hostname}`);
+        return new SPFResult(
+          SPFResultType.None,
+          this.context,
+          null,
+          `could not resolve ${hostname}`
+        );
       }
+
+      // Logs the record basic information.
+      this.logger?.debug(
+        `Record has ${record.modifiers.length} modifiers, and ${record.directives.length} directives.`
+      );
 
       // Checks some of the modifiers, will be important later in the process.
       if (record.modifiers.length !== 0) {
@@ -41,28 +57,24 @@ export class SPFValidator {
         const redirectModifier: SPFRedirectModifier | null =
           record.getModifierOfType<SPFRedirectModifier>(SPFRedirectModifier);
         if (redirectModifier !== null) {
-          if (this.verbose) {
-            console.debug(
-              `Found redirect modifier, redirecting to: "${
-                redirectModifier.domain
-              }", ignoring ${record.modifiers.length - 1} modifiers and ${
-                record.directives.length
-              } directives.`
-            );
-          }
+          this.logger?.debug(
+            `Found redirect modifier, redirecting to: "${
+              redirectModifier.hostname
+            }", ignoring ${record.modifiers.length - 1} modifiers and ${
+              record.directives.length
+            } directives.`
+          );
 
-          return this.validate(redirectModifier.domain);
+          return this.validate(redirectModifier.hostname);
         }
 
         // Checks if we're dealing with an explain modifier.
         const explainModifier: SPFExplainModifier | null =
           record.getModifierOfType<SPFExplainModifier>(SPFExplainModifier);
         if (explainModifier !== null) {
-          if (this.verbose) {
-            console.debug(
-              `Found explain modifier, with explaination of: ${explainModifier}`
-            );
-          }
+          this.logger?.debug(
+            `Found explain modifier, with explaination of: ${explainModifier}`
+          );
         }
       }
 
@@ -73,16 +85,14 @@ export class SPFValidator {
         const mechanism: SPFMechanism = directive.mechanism;
 
         // Calls the validate method inside the mechanism, and stores the result.
-        const mechanismResult: SPFMechanismResult = await mechanism.validate(
+        const mechanismResult: SPFMechanismResult = await mechanism.match(
           this.context
         );
 
         // Performs a debug log if verbosity specified.
-        if (this.verbose) {
-          console.debug(
-            `Tried directive with mechanism: ${directive.mechanism.constructor.name}, and qualifier: ${directive.qualifier}, resulting in: [${mechanismResult.match}] ${mechanismResult.reason}`
-          );
-        }
+        this.logger?.debug(
+          `Tried directive with mechanism: ${directive.mechanism.constructor.name}, and qualifier: ${directive.qualifier}, resulting in: [${mechanismResult.match}] ${mechanismResult.reason}`
+        );
 
         // Checks the qualifier of the message, and then checks what to do with the
         //  possible match.
@@ -90,7 +100,15 @@ export class SPFValidator {
           case SPFDirectiveQualifier.Fail: {
             // If it matches, we will fail the SPF validation.
             if (mechanismResult.match) {
-              return new SPFResult(SPFResultType.Fail, this.context, mechanism, mechanismResult.reason);
+              this.logger?.debug(
+                `${mechanism.toString()} matched, and resulted in fail.`
+              );
+              return new SPFResult(
+                SPFResultType.Fail,
+                this.context,
+                mechanism,
+                mechanismResult.reason
+              );
             }
 
             // Continue to the next directive.
@@ -99,7 +117,15 @@ export class SPFValidator {
           case SPFDirectiveQualifier.Pass: {
             // If it matches, we have finished the SPF check return pass.
             if (mechanismResult.match) {
-              return new SPFResult(SPFResultType.Pass, this.context, mechanism, mechanismResult.reason);
+              this.logger?.debug(
+                `${mechanism.toString()} matched, and resulted in pass.`
+              );
+              return new SPFResult(
+                SPFResultType.Pass,
+                this.context,
+                mechanism,
+                mechanismResult.reason
+              );
             }
 
             // Continue to next directive.
@@ -108,7 +134,15 @@ export class SPFValidator {
           case SPFDirectiveQualifier.Neutral: {
             // If it matches, we have finished the check, and we're neutral about the result.
             if (mechanismResult.match) {
-              return new SPFResult(SPFResultType.Neutral, this.context, mechanism, mechanismResult.reason);
+              this.logger?.debug(
+                `${mechanism.toString()} matched, and resulted in neutral.`
+              );
+              return new SPFResult(
+                SPFResultType.Neutral,
+                this.context,
+                mechanism,
+                mechanismResult.reason
+              );
             }
 
             // Continue to the next directive.
@@ -117,7 +151,15 @@ export class SPFValidator {
           case SPFDirectiveQualifier.SoftFail: {
             // If ti matches, we have finished the check, and we will (sort-off) fail.
             if (mechanismResult.match) {
-              return new SPFResult(SPFResultType.SoftFail, this.context, mechanism, mechanismResult.reason);
+              this.logger?.debug(
+                `${mechanism.toString()} matched, and resulted in soft fail.`
+              );
+              return new SPFResult(
+                SPFResultType.SoftFail,
+                this.context,
+                mechanism,
+                mechanismResult.reason
+              );
             }
 
             // Continue to the next directive.
@@ -130,14 +172,29 @@ export class SPFValidator {
       }
 
       // Nothing matched, nothing declided.. We don't know what to do.
-      return new SPFResult(SPFResultType.None, this.context, null, 'No matching directives');
+      return new SPFResult(
+        SPFResultType.None,
+        this.context,
+        null,
+        "No matching directives"
+      );
     } catch (_e) {
       if (_e instanceof SPFSyntacticalError) {
         const e: SPFSyntacticalError = _e as SPFSyntacticalError;
-        return new SPFResult(SPFResultType.PermError, this.context, null, e.message);
+        return new SPFResult(
+          SPFResultType.PermError,
+          this.context,
+          null,
+          e.message
+        );
       } else if (_e instanceof SPFNetworkingError) {
         const e: SPFSyntacticalError = _e as SPFSyntacticalError;
-        return new SPFResult(SPFResultType.TempError, this.context, null, e.message);
+        return new SPFResult(
+          SPFResultType.TempError,
+          this.context,
+          null,
+          e.message
+        );
       }
 
       throw _e;

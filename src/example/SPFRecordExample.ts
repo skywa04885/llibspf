@@ -1,10 +1,24 @@
 import { SPFRecord } from "../SPFRecord";
 import { SPFMacroProcessor } from "../SPFMacroProcessor";
 import util from "util";
-import { SPFContext } from "../SPFContext";
+import { ISPFContext } from "../SPFContext";
 import { IPv4Address } from "llibipaddress";
 import { SPFValidator } from "../SPFValidator";
 import { MimeHeaders } from "llibmime";
+import winston from "winston";
+
+const logger = winston.createLogger({
+  transports: [
+    new winston.transports.Console({
+      level: 'debug',
+      format: winston.format.combine(
+        winston.format.timestamp({format: 'YYYY-MM-DD HH:mm:ss.SSS'}),
+        winston.format.colorize(),
+        winston.format.printf(({level, message, label, timestamp}) => `${timestamp} ${label || '-'} ${level}: ${message}`),
+        )
+    })
+  ]
+});
 
 (async () => {
   // console.log(await SPFRecord.resolve('fannst.nl'));
@@ -12,15 +26,21 @@ import { MimeHeaders } from "llibmime";
   // console.log(processor.process('%{s} %{o} %{d} %{d4} %{d3} %{d2} %{d1} %{d2r} %{l} %{l-} %{lr} %{lr-} %{l1r-} %% %- \'%_\' %{cr=} %{r} %{t}', true));
   try {
     const result = await new SPFValidator(
-      new SPFContext(
-        "luke.rieff@fannst.nl",
-        "fannst.nl",
-        "fannst.nl",
-        IPv4Address.decode("207.180.225.138"),
-        "fannst.nl",
-        "fannst.nl"
-      )
-    ).validate("fannst.nl");
+      {
+        message: {
+          emailDomain: 'gmail.com',
+          emailUsername: 'luke.rieff'
+        },
+        client: {
+          greetHostname: 'test123',
+          ipAddress: IPv4Address.decode('209.85.216.54'),
+        },
+        server: {
+          hostname: 'fannst.nl'
+        }
+      },
+      logger
+    ).validate();
 
     const headers = new MimeHeaders();
 

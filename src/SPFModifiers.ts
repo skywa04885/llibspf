@@ -1,5 +1,9 @@
 import { SPFSyntacticalError } from "./SPFErrors";
 
+/////////////////////////////////////////////////
+// Modifier Class.
+/////////////////////////////////////////////////
+
 export class SPFModifier {
   /**
    * Parses the SPF modifier by key and value.
@@ -18,8 +22,16 @@ export class SPFModifier {
   }
 }
 
+/////////////////////////////////////////////////
+// Redirect Modifier Class.
+/////////////////////////////////////////////////
+
 export class SPFRedirectModifier extends SPFModifier {
-  public constructor(public readonly domain: string) {
+  /**
+   * Constructs a new SPF redirect modifier.
+   * @param hostname the hostname to redirect to.
+   */
+  public constructor(public readonly hostname: string) {
     super();
   }
 
@@ -37,8 +49,16 @@ export class SPFRedirectModifier extends SPFModifier {
   }
 }
 
+/////////////////////////////////////////////////
+// Explain Modifier Class.
+/////////////////////////////////////////////////
+
 export class SPFExplainModifier extends SPFModifier {
-  public constructor(public readonly domain: string) {
+  /**
+   * Constructs a new SPF explain modifier.
+   * @param hostname the hostname.
+   */
+  public constructor(public readonly hostname: string) {
     super();
   }
 
