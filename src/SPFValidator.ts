@@ -6,11 +6,8 @@ import {
   SPFMechanismResult,
 } from "./SPFDirectives";
 import { SPFNetworkingError, SPFSyntacticalError } from "./SPFErrors";
-import {
-  SPFExplainModifier,
-  SPFModifier,
-  SPFRedirectModifier,
-} from "./SPFModifiers";
+import { SPFExplainRecord } from "./SPFExplainRecord";
+import { SPFExplainModifier, SPFRedirectModifier } from "./SPFModifiers";
 import { SPFRecord } from "./SPFRecord";
 import { SPFResult, SPFResultType } from "./SPFResult";
 
@@ -28,12 +25,17 @@ export class SPFValidator {
     hostname: string = this.context.message.emailDomain
   ): Promise<SPFResult> {
     try {
+      /////////////////////////////////////////////////
+      // Record resolving.
+      /////////////////////////////////////////////////
+
       this.logger?.debug(`Resolving record for: ${hostname}`);
 
       // Gets the SPF Record.
       const record: SPFRecord | null = await SPFRecord.resolve(
         hostname,
-        this.context
+        this.context,
+        this.logger
       );
 
       // Makes sure that the record is found.
@@ -51,6 +53,10 @@ export class SPFValidator {
         `Record has ${record.modifiers.length} modifiers, and ${record.directives.length} directives.`
       );
 
+      /////////////////////////////////////////////////
+      // Handle modifiers.
+      /////////////////////////////////////////////////
+
       // Checks some of the modifiers, will be important later in the process.
       if (record.modifiers.length !== 0) {
         // Checks if there is a redirect modifier, if so we want to recurse, and use that resuilt.
@@ -67,16 +73,11 @@ export class SPFValidator {
 
           return this.validate(redirectModifier.hostname);
         }
-
-        // Checks if we're dealing with an explain modifier.
-        const explainModifier: SPFExplainModifier | null =
-          record.getModifierOfType<SPFExplainModifier>(SPFExplainModifier);
-        if (explainModifier !== null) {
-          this.logger?.debug(
-            `Found explain modifier, with explaination of: ${explainModifier}`
-          );
-        }
       }
+
+      /////////////////////////////////////////////////
+      // Matches the mechanisms inside the directives.
+      /////////////////////////////////////////////////
 
       // Starts looping over all the directives.
       for (const directive of record.directives) {
@@ -103,11 +104,36 @@ export class SPFValidator {
               this.logger?.debug(
                 `${mechanism.toString()} matched, and resulted in fail.`
               );
+
+              // Gets the explain modifier, if there.
+              const explainModifier: SPFExplainModifier | null =
+                record.getModifierOfType<SPFExplainModifier>(
+                  SPFExplainModifier
+                );
+
+              // Checks if we have an explain modifier.
+              let explaination: string | null = null;
+              if (explainModifier !== null) {
+                // Logs that we've found an explain modifier.
+                this.logger?.debug(
+                  `Failed, also found explain modifier with hostname: ${explainModifier.hostname}, resolving...`
+                );
+
+                // Resolves the explain record.
+                const spfExplainRecord: SPFExplainRecord = await SPFExplainRecord.resolve(explainModifier.hostname, this.context);
+                this.logger?.debug(`Resolved explaination: '${spfExplainRecord.contents}'`);
+
+                // Sets the explaination.
+                explaination = spfExplainRecord.contents;
+              }
+
+              // Returns the result.
               return new SPFResult(
                 SPFResultType.Fail,
                 this.context,
                 mechanism,
-                mechanismResult.reason
+                mechanismResult.reason,
+                explaination
               );
             }
 
@@ -179,6 +205,7 @@ export class SPFValidator {
         "No matching directives"
       );
     } catch (_e) {
+      // If it is an SPF error, handle it appropiately.
       if (_e instanceof SPFSyntacticalError) {
         const e: SPFSyntacticalError = _e as SPFSyntacticalError;
         return new SPFResult(

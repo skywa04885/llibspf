@@ -5,6 +5,7 @@ import { SPFDirective, SPFMechanism, SPFMechanismResult } from "./SPFDirectives"
 import { SPFModifier } from "./SPFModifiers";
 import { ISPFContext } from "./SPFContext";
 import { SPFNetworkingError } from "./SPFErrors";
+import winston from 'winston';
 
 export enum SPFBasicMechanism {
   All = "all",
@@ -46,17 +47,19 @@ export class SPFRecord {
    * Resolves an SPF record for the given hostname.
    * @param hostname the hostname to resolve the SPF record for.
    * @param context the context.
+   * @param logger the logger.
    * @returns the SPF record for the hostname.
    */
   public static async resolve(
     hostname: string,
-    context: ISPFContext
+    context: ISPFContext,
+    logger: winston.Logger | undefined = undefined
   ): Promise<SPFRecord | null> {
     // Gets all the TXT records from the domain.
     let records: string[];
     try {
       records = (await util.promisify(dns.resolveTxt)(hostname)).map(
-        (record: string[]): string => record.join().trim()
+        (record: string[]): string => record.join('').trim()
       );
     } catch (e) {
       throw new SPFNetworkingError();
@@ -71,6 +74,9 @@ export class SPFRecord {
       return null;
     }
     const spf_record: string = spf_records[0].slice(6); // Ignore others.
+
+    // Prints the raw record.
+    logger?.debug(`Resolved record: '${spf_record}'`);
 
     // Returns the decoded header.
     return SPFRecord.decode(spf_record, context);

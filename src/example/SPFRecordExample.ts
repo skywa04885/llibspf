@@ -28,12 +28,12 @@ const logger = winston.createLogger({
     const result = await new SPFValidator(
       {
         message: {
-          emailDomain: 'gmail.com',
+          emailDomain: 'rijksoverheid.nl',
           emailUsername: 'luke.rieff'
         },
         client: {
           greetHostname: 'test123',
-          ipAddress: IPv4Address.decode('209.85.216.54'),
+          ipAddress: IPv4Address.decode('29.85.216.54'),
         },
         server: {
           hostname: 'fannst.nl'

@@ -110,7 +110,7 @@ export class SPFAllMechanism extends SPFMechanism {
    * @returns the result of the validation.
    */
   public async match(context: ISPFContext): Promise<SPFMechanismResult> {
-    return new SPFMechanismResult(true, "everything matches");
+    return new SPFMechanismResult(true);
   }
 
   /**

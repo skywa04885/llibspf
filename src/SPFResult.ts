@@ -16,8 +16,20 @@ export enum SPFResultType {
 }
 
 export class SPFResult {
-  public constructor(public readonly type: SPFResultType, public readonly context: ISPFContext, public readonly mechanism: SPFMechanism | null = null, public readonly comment: string | null = null) {}
+  /**
+   * Constructs a new SPF result.
+   * @param type the type of the result.
+   * @param context the context.
+   * @param mechanism the matching mechanism.
+   * @param comment the comment.
+   * @param explaination the possible explaination supplied by provider.
+   */
+  public constructor(public readonly type: SPFResultType, public readonly context: ISPFContext, public readonly mechanism: SPFMechanism | null = null, public readonly comment: string | null = null, public readonly explaination: string | null = null) {}
 
+  /**
+   * Constructs the header version of the result.
+   * @returns the header version of the result.
+   */
   public asHeader(): [string, string] {
     // Constructs the key/ value pairs.
     const pairs: {[key: string]: string} = {
