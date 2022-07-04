@@ -1,6 +1,6 @@
 import dns from "dns";
 import util from "util";
-import { SPFContext } from ".";
+import { ISPFContext } from "./SPFContext";
 import { SPFNetworkingError } from "./SPFErrors";
 import { SPFMacroProcessor } from "./SPFMacroProcessor";
 
@@ -19,7 +19,7 @@ export class SPFExplainRecord {
    */
   public static async resolve(
     hostname: string,
-    context: SPFContext
+    context: ISPFContext
   ): Promise<SPFExplainRecord> {
     // Gets all the found txt records.
     const txtRecords: string[][] = await util.promisify(dns.resolveTxt)(

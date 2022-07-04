@@ -4,6 +4,10 @@ import { ISPFContext } from "./SPFContext";
 import { SPFSyntacticalError } from "./SPFErrors";
 
 export class SPFMacroProcessor {
+  /**
+   * Constructs a new macro processor.
+   * @param context the context.
+   */
   public constructor(public readonly context: ISPFContext) {}
 
   /**

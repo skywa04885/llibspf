@@ -1,7 +1,3 @@
-import { SPFRecord } from "../SPFRecord";
-import { SPFMacroProcessor } from "../SPFMacroProcessor";
-import util from "util";
-import { ISPFContext } from "../SPFContext";
 import { IPv4Address } from "llibipaddress";
 import { SPFValidator } from "../SPFValidator";
 import { MimeHeaders } from "llibmime";

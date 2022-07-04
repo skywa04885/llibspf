@@ -12,6 +12,11 @@ import { SPFRecord } from "./SPFRecord";
 import { SPFResult, SPFResultType } from "./SPFResult";
 
 export class SPFValidator {
+  /**
+   * Constructs a new SPF validator.
+   * @param context the context.
+   * @param logger the possible logger.
+   */
   public constructor(
     public readonly context: ISPFContext,
     public readonly logger: winston.Logger | undefined = undefined
